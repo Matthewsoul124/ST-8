@@ -11,140 +11,148 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 public class App {
     public static void main(String[] args) {
+        // 1. Настройка ChromeDriver
+        System.setProperty("webdriver.chrome.driver", "D:\\chromedriver-win64\\chromedriver.exe");
+        ChromeOptions options = new ChromeOptions();
+        options.addArguments("--start-maximized");
+        options.addArguments("--remote-allow-origins=*");
 
-        System.setProperty("webdriver.chrome.driver", "C:\\Users\\user\\chromedriver-win64\\chromedriver-win64\\chromedriver.exe");
+        // Настройка загрузки файлов
+        String downloadPath = "D:\\Games\\testing\\ST-8\\result";
+        new File(downloadPath).mkdirs();
 
-        ChromeOptions настройки = new ChromeOptions();
-        настройки.addArguments("--start-maximized");
-        настройки.addArguments("--remote-allow-origins=*");
+        Map<String, Object> prefs = new HashMap<>();
+        prefs.put("download.default_directory", downloadPath);
+        prefs.put("download.prompt_for_download", false);
+        prefs.put("plugins.always_open_pdf_externally", true);
+        options.setExperimentalOption("prefs", prefs);
 
-        String путьЗагрузки = "D:\\Games\\testing\\ST-8\\result";
-        new File(путьЗагрузки).mkdirs();
-
-        Map<String, Object> параметры = new HashMap<>();
-        параметры.put("download.default_directory", путьЗагрузки);
-        параметры.put("download.prompt_for_download", false);
-        параметры.put("plugins.always_open_pdf_externally", true);
-        настройки.setExperimentalOption("prefs", параметры);
-
-        WebDriver браузер = new ChromeDriver(настройки);
-        WebDriverWait ожидание = new WebDriverWait(браузер, Duration.ofSeconds(30));
+        WebDriver driver = new ChromeDriver(options);
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(30));
 
         try {
+            // 2. Открытие страницы
+            driver.get("http://www.papercdcase.com/index.php");
+            System.out.println("Страница загружена: " + driver.getTitle());
 
-            браузер.get("http://www.papercdcase.com/index.php");
-            System.out.println("Открыта страница: " + браузер.getTitle());
+            // 3. Заполнение формы
+            fillForm(driver, wait, "data/data.txt");
 
+            // 4. Нажатие кнопки генерации
+            clickGenerateButton(driver, wait);
 
-            заполнитьФорму(браузер, ожидание, "data/data.txt");
-
-
-            нажатьГенерацию(браузер, ожидание);
-
-
-            ждатьPDF(путьЗагрузки, 30);
+            // 5. Ожидание и проверка загрузки файла
+            waitForPdfDownload(downloadPath, 30);
 
         } catch (Exception e) {
-            System.err.println("Ошибка при выполнении:");
+            System.err.println("Ошибка:");
             e.printStackTrace();
-            сделатьСкриншот(браузер, "ошибка.png");
+            takeScreenshot(driver, "error.png");
         } finally {
-            браузер.quit();
+            driver.quit();
         }
     }
 
-    private static void заполнитьФорму(WebDriver браузер, WebDriverWait ожидание, String файлДанных) throws Exception {
-        List<String> строки = Files.readAllLines(Paths.get(файлДанных));
-        String артист = строки.get(0).split(": ")[1];
-        String название = строки.get(1).split(": ")[1];
-        List<String> треки = строки.subList(3, строки.size());
+    private static void fillForm(WebDriver driver, WebDriverWait wait, String dataFile) throws Exception {
+        List<String> lines = Files.readAllLines(Paths.get(dataFile));
+        String artist = lines.get(0).split(": ")[1];
+        String title = lines.get(1).split(": ")[1];
+        List<String> tracks = lines.subList(3, lines.size());
 
+        // Заполнение Artist
+        WebElement artistField = wait.until(ExpectedConditions.elementToBeClickable(
+            By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[1]/td[2]/input")));
+        artistField.clear();
+        artistField.sendKeys(artist);
 
-        WebElement полеАртиста = ожидание.until(ExpectedConditions.elementToBeClickable(
-                By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[1]/td[2]/input")));
-        полеАртиста.clear();
-        полеАртиста.sendKeys(артист);
+        // Заполнение Title
+        WebElement titleField = driver.findElement(
+            By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[2]/td[2]/input"));
+        titleField.clear();
+        titleField.sendKeys(title);
 
-
-        WebElement полеНазвания = браузер.findElement(
-                By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[2]/td[2]/input"));
-        полеНазвания.clear();
-        полеНазвания.sendKeys(название);
-
-
-        for (int i = 0; i < Math.min(треки.size(), 16); i++) {
-            int номерСтроки = (i < 8) ? (i + 1) : (i - 7);
-            String столбец = (i < 8) ? "1" : "2";
+        // Заполнение Tracks (16 полей)
+        for (int i = 0; i < Math.min(tracks.size(), 16); i++) {
+            int row = (i < 8) ? (i + 1) : (i - 7);
+            String column = (i < 8) ? "1" : "2";
 
             String xpath = String.format(
-                    "/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[3]/td[2]/table/tbody/tr/td[%s]/table/tbody/tr[%d]/td[2]/input",
-                    столбец, номерСтроки);
+                "/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[3]/td[2]/table/tbody/tr/td[%s]/table/tbody/tr[%d]/td[2]/input",
+                column, row);
 
-            WebElement полеТрека = браузер.findElement(By.xpath(xpath));
-            полеТрека.clear();
-            полеТрека.sendKeys(треки.get(i));
+            WebElement trackField = driver.findElement(By.xpath(xpath));
+            trackField.clear();
+            trackField.sendKeys(tracks.get(i));
         }
 
-
-        WebElement джьюелБокс = браузер.findElement(
-                By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[4]/td[2]/input[@value='jewel']"));
-        if (!джьюелБокс.isSelected()) {
-            джьюелБокс.click();
+        // Выбор Type (Jewel Case)
+        WebElement jewelCase = driver.findElement(
+            By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[4]/td[2]/input[@value='jewel']"));
+        if (!jewelCase.isSelected()) {
+            jewelCase.click();
         }
 
-
-        WebElement а4 = браузер.findElement(
-                By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[5]/td[2]/input[@value='a4']"));
-        if (!а4.isSelected()) {
-            а4.click();
+        // Выбор Paper (A4)
+        WebElement a4Paper = driver.findElement(
+            By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/table/tbody/tr[5]/td[2]/input[@value='a4']"));
+        if (!a4Paper.isSelected()) {
+            a4Paper.click();
         }
 
-        System.out.println("Форма заполнена успешно");
+        System.out.println("Форма успешно заполнена");
     }
 
-    private static void нажатьГенерацию(WebDriver браузер, WebDriverWait ожидание) {
-        WebElement кнопка = ожидание.until(ExpectedConditions.elementToBeClickable(
-                By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/p/input")));
+    private static void clickGenerateButton(WebDriver driver, WebDriverWait wait) {
+        // Кнопка генерации
+        WebElement generateButton = wait.until(ExpectedConditions.elementToBeClickable(
+            By.xpath("/html/body/table[2]/tbody/tr/td[1]/div/form/p/input")));
 
-        ((JavascriptExecutor) браузер).executeScript("arguments[0].scrollIntoView(true);", кнопка);
-        ((JavascriptExecutor) браузер).executeScript("arguments[0].click();", кнопка);
-
-        System.out.println("Нажата кнопка генерации");
+        // Клик через JavaScript для надежности
+        ((JavascriptExecutor)driver).executeScript("arguments[0].click();", generateButton);
+        System.out.println("Кнопка генерации нажата");
     }
 
-    private static void ждатьPDF(String папка, int таймаут) throws Exception {
-        File директория = new File(папка);
-        long конец = System.currentTimeMillis() + (таймаут * 1000);
+    private static void waitForPdfDownload(String folderPath, int timeoutSeconds) throws Exception {
+        File folder = new File(folderPath);
+        long endTime = System.currentTimeMillis() + (timeoutSeconds * 1000);
+        System.out.println("Ожидание загрузки файла в: " + folder.getAbsolutePath());
 
-        while (System.currentTimeMillis() < конец) {
-            File[] файлы = директория.listFiles((dir, name) ->
-                    name.toLowerCase().endsWith(".pdf") &&
-                            !name.contains(".crdownload"));
+        while (System.currentTimeMillis() < endTime) {
+            File[] files = folder.listFiles((dir, name) -> 
+                name.toLowerCase().endsWith(".pdf") && 
+                !name.toLowerCase().contains("temp") &&
+                !name.toLowerCase().contains("crdownload"));
 
-            if (файлы != null && файлы.length > 0) {
-                File pdf = файлы[0];
-                if (pdf.exists() && pdf.length() > 0) {
-                    System.out.println("Файл сохранён: " + pdf.getName());
+            if (files != null && files.length > 0) {
+                File pdfFile = files[0];
+                if (pdfFile.length() > 0) {
+                    System.out.println("Файл успешно загружен: " + pdfFile.getName());
                     return;
                 }
             }
             Thread.sleep(1000);
         }
 
-        throw new RuntimeException("Файл не загружен за " + таймаут + " секунд");
+        throw new RuntimeException("PDF файл не был загружен в течение " + timeoutSeconds + " секунд");
     }
 
-    private static void сделатьСкриншот(WebDriver браузер, String имя) {
+    private static void takeScreenshot(WebDriver driver, String fileName) {
         try {
-            File исходник = ((TakesScreenshot) браузер).getScreenshotAs(OutputType.FILE);
-            FileUtils.copyFile(исходник, new File(имя));
-            System.out.println("Скриншот сохранён: " + имя);
+            File screenshot = ((TakesScreenshot)driver).getScreenshotAs(OutputType.FILE);
+            FileUtils.copyFile(screenshot, new File(fileName));
+            System.out.println("Скриншот сохранен: " + fileName);
         } catch (Exception e) {
-            System.err.println("Не удалось сделать скриншот");
+            System.err.println("Ошибка при создании скриншота: " + e.getMessage());
         }
     }
 }
+
+
+
+
